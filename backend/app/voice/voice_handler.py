@@ -183,15 +183,19 @@ class VoiceCallHandler:
     
     async def _classify_intent(self, user_input: str) -> str:
         """
-        Use LLM to classify user intent
+        Use LLM to classify user intent via OpenRouter
         """
         from openai import OpenAI
         from app.config import settings
         
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # OpenRouter uses OpenAI-compatible API
+        client = OpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url=settings.OPENROUTER_BASE_URL
+        )
         
         response = client.chat.completions.create(
-            model="gpt-4-turbo",
+            model=settings.OPENROUTER_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -208,7 +212,11 @@ class VoiceCallHandler:
                     "content": user_input
                 }
             ],
-            temperature=0
+            temperature=0,
+            extra_headers={
+                "HTTP-Referer": "https://grandflow.app",
+                "X-Title": "GrandFLOW"
+            }
         )
         
         intent = response.choices[0].message.content.strip()

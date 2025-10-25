@@ -1,9 +1,9 @@
 # backend/app/crews/orchestrator.py
 
 from crewai import Agent, Task, Crew, Process
-from app.crews.health_monitoring_crew import create_health_monitoring_crew
-from app.crews.cognitive_testing_crew import create_cognitive_testing_crew
-from app.crews.service_concierge_crew import create_service_concierge_crew
+from app.crews.health_monitoring import create_health_monitoring_crew
+from app.crews.cognitive_testing import create_cognitive_testing_crew
+from app.crews.service_concierge import create_service_concierge_crew
 from app.tools.database_tools import (
     log_call_start, log_call_end, update_call_agents
 )

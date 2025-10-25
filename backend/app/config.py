@@ -21,13 +21,15 @@ class Settings:
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
     
-    # OpenAI
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
+    # OpenRouter (LLM API)
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     
-    # Fish Audio (TTS)
+    # Fish Audio (TTS & STT)
     FISH_AUDIO_API_KEY: str = os.getenv("FISH_AUDIO_API_KEY", "")
     FISH_AUDIO_VOICE_ID: str = os.getenv("FISH_AUDIO_VOICE_ID", "")
+    FISH_AUDIO_STT_MODEL: str = os.getenv("FISH_AUDIO_STT_MODEL", "whisper-large-v3")
     
     # Twilio (Voice)
     TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
@@ -70,7 +72,7 @@ class Settings:
         required = [
             ("SUPABASE_URL", cls.SUPABASE_URL),
             ("SUPABASE_KEY", cls.SUPABASE_KEY),
-            ("OPENAI_API_KEY", cls.OPENAI_API_KEY),
+            ("OPENROUTER_API_KEY", cls.OPENROUTER_API_KEY),
         ]
         
         missing = [name for name, value in required if not value]
