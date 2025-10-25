@@ -1,0 +1,44 @@
+fastapi==0.110.2
+uvicorn[standard]==0.30.1
+
+# Database and Supabase
+supabase==1.2.0
+python-dotenv==1.0.1
+
+# Pydantic for models
+pydantic==1.10.15
+
+# Authentication and security
+python-jose==3.3.0
+passlib==1.7.4
+bcrypt==4.1.2
+
+# Twilio for phone/voice
+twilio==9.0.4
+
+# CrewAI agents and tools
+crewai==0.15.0
+crewai-tools==0.8.0
+
+# OpenAI/Whisper/Python client
+openai==1.25.1
+
+# Fish Audio (if they have a Python SDK, or use requests)
+aiohttp==3.9.5
+requests==2.31.0
+
+# Date/time utilities
+python-dateutil==2.9.0.post0
+
+# CORS
+starlette==0.37.2
+
+# Optional: asynchronous task support, testing, etc.
+httpx==0.27.0
+pytest==8.2.1
+
+# For type checking
+typing-extensions>=4.5.0
+
+# Additional FastAPI utilities
+itsdangerous==2.2.0

@@ -1,9 +1,12 @@
 # backend/app/voice/conversation_manager.py
 
-from crewai import Crew
-from app.crews.health_monitoring import create_health_monitoring_crew
-from app.crews.cognitive_testing import create_cognitive_testing_crew
-from app.crews.service_concierge import create_service_concierge_crew
+"""
+Conversation Manager - Simplified wrapper around CallOrchestrator
+This provides a high-level interface for managing AI-powered voice conversations.
+Uses CallOrchestrator for crew management and Twilio for audio playback.
+"""
+
+from app.crews.orchestrator import CallOrchestrator
 from app.voice.speech_to_text import transcribe_audio
 from app.voice.text_to_speech import synthesize_speech
 from supabase import create_client
@@ -12,39 +15,43 @@ from uuid import uuid4
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import tempfile
-import base64
 
 class ConversationManager:
+    """
+    High-level conversation manager that coordinates:
+    - CallOrchestrator (manages CrewAI crews)
+    - Twilio (voice call management)
+    - Fish Audio (TTS/STT)
+    - Supabase (storage & database)
+    """
+    
     def __init__(self, user_id: str, call_sid: str):
         self.user_id = user_id
         self.call_sid = call_sid
-        self.call_id = str(uuid4())
         self.conversation_history = []
-        self.current_crew = None
+        
+        # Use CallOrchestrator for crew management
+        self.orchestrator = CallOrchestrator(
+            patient_id=user_id,
+            call_sid=call_sid,
+            call_direction="inbound"
+        )
         
         self.supabase = create_client(
             os.getenv("SUPABASE_URL"),
             os.getenv("SUPABASE_KEY")
         )
         
-        # Initialize Twilio client for call management
+        # Initialize Twilio client for audio playback
         self.twilio_client = Client(
             os.getenv("TWILIO_ACCOUNT_SID"),
             os.getenv("TWILIO_AUTH_TOKEN")
         )
-        
-        # Log call start
-        self.log_call_start()
     
-    def log_call_start(self):
-        """Create call log entry"""
-        self.supabase.table("call_logs").insert({
-            "id": self.call_id,
-            "user_id": self.user_id,
-            "call_sid": self.call_sid,
-            "started_at": "NOW()",
-            "agents_involved": []
-        }).execute()
+    async def initialize(self):
+        """Initialize the call via orchestrator"""
+        self.call_id = await self.orchestrator.initiate_call()
+        return self.call_id
     
     async def handle_conversation(self, audio_stream):
         """
@@ -80,37 +87,36 @@ class ConversationManager:
     
     async def run_health_monitoring(self):
         """
-        Execute health monitoring crew
+        Execute health monitoring crew via orchestrator
         """
-        crew = create_health_monitoring_crew(self.user_id, self.call_id)
-        self.current_crew = crew
-        
-        # Run crew (it will conduct the check-in conversation)
-        result = crew.kickoff()
-        
-        # Log crew activity
-        self.log_agent_activity("health_monitoring", result)
+        result = await self.orchestrator.route_to_crew(
+            intent="health_checkup",
+            context={"conversation_history": self.conversation_history}
+        )
+        return result
     
     async def run_cognitive_testing(self):
         """
-        Execute cognitive testing crew (weekly)
+        Execute cognitive testing crew via orchestrator
         """
-        crew = create_cognitive_testing_crew(self.user_id, self.call_id)
-        self.current_crew = crew
-        
-        result = crew.kickoff()
-        self.log_agent_activity("cognitive_testing", result)
+        result = await self.orchestrator.route_to_crew(
+            intent="cognitive_test",
+            context={"conversation_history": self.conversation_history}
+        )
+        return result
     
     async def run_service_concierge(self, user_request: str):
         """
-        Execute service concierge crew
+        Execute service concierge crew via orchestrator
         """
-        crew = create_service_concierge_crew(self.user_id, self.call_id)
-        self.current_crew = crew
-        
-        # Pass user request to crew
-        result = crew.kickoff(inputs={"user_request": user_request})
-        self.log_agent_activity("service_concierge", result)
+        result = await self.orchestrator.route_to_crew(
+            intent="service_request",
+            context={
+                "user_request": user_request,
+                "conversation_history": self.conversation_history
+            }
+        )
+        return result
     
     async def listen(self, audio_stream) -> str:
         """
@@ -277,19 +283,6 @@ class ConversationManager:
         
         return response.choices[0].message.content.strip()
     
-    def log_agent_activity(self, agent_type: str, result):
-        """
-        Log which agents were involved and what tasks completed
-        """
-        self.supabase.table("call_logs").update({
-            "agents_involved": self.supabase.raw("array_append(agents_involved, %s)", agent_type),
-            "tasks_completed": self.supabase.raw("array_append(tasks_completed, %s)", {
-                "agent": agent_type,
-                "timestamp": "NOW()",
-                "result": str(result)
-            })
-        }).eq("id", self.call_id).execute()
-    
     async def conclude_call(self):
         """
         End call gracefully
@@ -297,8 +290,9 @@ class ConversationManager:
         farewell = "Thank you for calling! Have a wonderful day. Remember, I'm here whenever you need me. Goodbye!"
         await self.speak(farewell)
         
-        # Update call log
-        self.supabase.table("call_logs").update({
-            "ended_at": "NOW()",
-            "transcript": "\n".join([f"{m['role']}: {m['content']}" for m in self.conversation_history])
-        }).eq("id", self.call_id).execute()
+        # Finalize call via orchestrator
+        transcript = "\n".join([f"{m['role']}: {m['content']}" for m in self.conversation_history])
+        await self.orchestrator.finalize_call(
+            transcript=transcript,
+            patient_mood="positive"  # Could be determined by sentiment analysis
+        )

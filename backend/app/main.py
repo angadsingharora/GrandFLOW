@@ -2,101 +2,68 @@
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from twilio.twiml.voice_response import VoiceResponse, Gather
-from app.voice.conversation_manager import ConversationManager
+from app.voice.voice_handler import voice_handler
 import os
 
-app = FastAPI(title="CareCompanion AI API")
+app = FastAPI(title="GrandFLOW AI API")
 
 # CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# ========================================
+# Voice Call Endpoints (Twilio Webhooks)
+# ========================================
 
 @app.post("/voice/incoming")
 async def handle_incoming_call(request: Request):
     """
     Twilio webhook for incoming calls
+    Uses VoiceCallHandler which manages CallOrchestrator
     """
-    form_data = await request.form()
-    caller_number = form_data.get("From")
-    call_sid = form_data.get("CallSid")
-    
-    # Lookup user by phone number
-    from app.database import supabase
-    user = supabase.table("users").select("id").eq("phone_number", caller_number).single().execute()
-    
-    if not user.data:
-        # Unknown caller
-        response = VoiceResponse()
-        response.say("Sorry, we don't recognize your phone number. Please contact support.", voice="Polly.Joanna")
-        response.hangup()
-        return Response(content=str(response), media_type="application/xml")
-    
-    user_id = user.data['id']
-    
-    # Initialize conversation manager
-    conversation_manager = ConversationManager(user_id, call_sid)
-    
-    # Start conversation
-    response = VoiceResponse()
-    response.say("Hello! Connecting you to CareCompanion AI.", voice="Polly.Joanna")
-    response.redirect("/voice/conversation")
-    
-    return Response(content=str(response), media_type="application/xml")
+    return await voice_handler.handle_incoming_call(request)
 
-@app.post("/voice/conversation")
-async def handle_conversation(request: Request):
-    """
-    Main conversation handler (streams audio)
-    """
-    form_data = await request.form()
-    call_sid = form_data.get("CallSid")
-    
-    # Retrieve conversation manager from session
-    # (In production, use Redis for session storage)
-    
-    response = VoiceResponse()
-    
-    # Use Gather to collect speech input
-    gather = Gather(
-        input='speech',
-        action='/voice/process-input',
-        method='POST',
-        timeout=5,
-        speechTimeout='auto'
-    )
-    gather.say("How can I help you today?", voice="Polly.Joanna")
-    
-    response.append(gather)
-    response.redirect("/voice/conversation")  # Loop back if no input
-    
-    return Response(content=str(response), media_type="application/xml")
 
 @app.post("/voice/process-input")
 async def process_user_input(request: Request):
     """
-    Process transcribed user speech
+    Process transcribed user speech from Twilio
+    Routes to appropriate CrewAI agents via CallOrchestrator
+    """
+    return await voice_handler.process_user_input(request)
+
+
+@app.post("/voice/outbound")
+async def initiate_outbound_call(patient_id: str, call_type: str = "scheduled"):
+    """
+    Initiate outbound call to patient
+    
+    Args:
+        patient_id: Patient UUID
+        call_type: "scheduled" (daily check-in) or "followup"
+    """
+    return await voice_handler.handle_outbound_call(patient_id, call_type)
+
+
+@app.post("/voice/call-status")
+async def handle_call_status(request: Request):
+    """
+    Twilio callback for call status updates
     """
     form_data = await request.form()
-    user_speech = form_data.get("SpeechResult")
     call_sid = form_data.get("CallSid")
+    call_status = form_data.get("CallStatus")
     
-    # Pass to conversation manager
-    # (Retrieve from session, process with CrewAI agents)
+    # Log call status change
+    print(f"Call {call_sid} status: {call_status}")
     
-    # For now, simple echo
-    response = VoiceResponse()
-    response.say(f"You said: {user_speech}", voice="Polly.Joanna")
-    response.redirect("/voice/conversation")
-    
-    return Response(content=str(response), media_type="application/xml")
+    return Response(content="OK", media_type="text/plain")
 
 # ========================================
 # Dashboard API Endpoints

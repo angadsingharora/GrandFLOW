@@ -2,6 +2,7 @@
 
 from fastapi import Request, Response
 from twilio.twiml.voice_response import VoiceResponse, Gather, Say
+from twilio.rest import Client as TwilioClient
 from app.database import get_patient_by_phone, supabase
 from app.crews.orchestrator import CallOrchestrator
 from app.voice.speech_to_text import transcribe_audio
@@ -9,6 +10,9 @@ from app.voice.text_to_speech import synthesize_speech
 from typing import Dict, Optional
 import asyncio
 from datetime import datetime
+from uuid import uuid4
+import tempfile
+import os
 
 class VoiceCallHandler:
     """
@@ -17,6 +21,13 @@ class VoiceCallHandler:
     
     def __init__(self):
         self.active_calls: Dict[str, CallOrchestrator] = {}
+        
+        # Initialize Twilio client for call management
+        from app.config import settings
+        self.twilio_client = TwilioClient(
+            settings.TWILIO_ACCOUNT_SID,
+            settings.TWILIO_AUTH_TOKEN
+        )
     
     async def handle_incoming_call(self, request: Request) -> Response:
         """
@@ -221,6 +232,59 @@ class VoiceCallHandler:
         
         intent = response.choices[0].message.content.strip()
         return intent
+    
+    async def speak_with_fish_audio(self, text: str, call_sid: str) -> str:
+        """
+        Generate speech with Fish Audio and play on Twilio call
+        
+        Args:
+            text: Text to speak
+            call_sid: Active Twilio call SID
+            
+        Returns:
+            Public URL of the audio file
+        """
+        try:
+            # Generate audio with Fish Audio
+            audio_bytes = await synthesize_speech(text)
+            
+            # Save to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_audio:
+                temp_audio.write(audio_bytes)
+                temp_audio_path = temp_audio.name
+            
+            # Upload to Supabase storage
+            call_id = self.active_calls.get(call_sid).call_id if call_sid in self.active_calls else str(uuid4())
+            file_name = f"call_audio/{call_id}/{uuid4()}.mp3"
+            
+            with open(temp_audio_path, 'rb') as f:
+                supabase.storage.from_('call-audio').upload(
+                    file_name,
+                    f,
+                    file_options={"content-type": "audio/mpeg"}
+                )
+            
+            # Get public URL
+            audio_url = supabase.storage.from_('call-audio').get_public_url(file_name)
+            
+            # Update call to play audio
+            twiml = VoiceResponse()
+            twiml.play(audio_url)
+            
+            self.twilio_client.calls(call_sid).update(twiml=str(twiml))
+            
+            # Clean up temp file
+            os.unlink(temp_audio_path)
+            
+            return audio_url
+            
+        except Exception as e:
+            print(f"Error playing Fish Audio on call: {str(e)}")
+            # Fallback to Twilio TTS
+            twiml = VoiceResponse()
+            twiml.say(text, voice="Polly.Joanna")
+            self.twilio_client.calls(call_sid).update(twiml=str(twiml))
+            return None
 
 # Global handler instance
 voice_handler = VoiceCallHandler()
