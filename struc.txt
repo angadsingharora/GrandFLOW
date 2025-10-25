@@ -1,0 +1,143 @@
+granflow/
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py                      # FastAPI entry point
+│   │   ├── config.py
+│   │   ├── database.py                  # Supabase client
+│   │   │
+│   │   ├── models/                      # Pydantic models
+│   │   │   ├── __init__.py
+│   │   │   ├── user.py
+│   │   │   ├── patient.py
+│   │   │   ├── health_entries.py
+│   │   │   ├── cognitive_entries.py
+│   │   │   ├── service_entries.py
+│   │   │   └── call_log.py              # NEW: Track call metadata
+│   │   │
+│   │   ├── crews/                       # CrewAI agents
+│   │   │   ├── __init__.py
+│   │   │   ├── health_monitoring_crew.py
+│   │   │   ├── cognitive_testing_crew.py
+│   │   │   ├── service_concierge_crew.py
+│   │   │   └── orchestrator.py
+│   │   │
+│   │   ├── tools/                       # Agent tools
+│   │   │   ├── __init__.py
+│   │   │   ├── database_tools.py        # Insert entries
+│   │   │   ├── health_analysis_tools.py
+│   │   │   ├── mock_service_tools.py    # NEW: Mock Uber/DoorDash calls
+│   │   │   ├── cognitive_test_tools.py
+│   │   │   └── wearable_tools.py
+│   │   │
+│   │   ├── voice/                       # Voice interface
+│   │   │   ├── __init__.py
+│   │   │   ├── voice_handler.py
+│   │   │   ├── speech_to_text.py        # Whisper
+│   │   │   ├── text_to_speech.py        # Fish Audio
+│   │   │   ├── conversation_manager.py
+│   │   │   └── call_scheduler.py        # NEW: Schedule outbound calls
+│   │   │
+│   │   ├── api/                         # REST endpoints (READ-ONLY for dashboard)
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py                  # Supabase auth
+│   │   │   ├── caregivers.py            # Get caregiver's patients
+│   │   │   ├── dashboard_data.py        # Aggregate health data
+│   │   │   ├── call_logs.py             # NEW: Call history endpoint
+│   │   │   └── webhooks.py              # Wearable data ingestion
+│   │   │
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       └── helpers.py
+│   │
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── .env.example
+│
+├── frontend/
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx                 # Sign-in page
+│   │   │   ├── globals.css
+│   │   │   │
+│   │   │   ├── dashboard/               # NEW: Patient selection
+│   │   │   │   └── page.tsx             # "Your GranFlows" - list patients
+│   │   │   │
+│   │   │   └── patient/
+│   │   │       └── [patientId]/
+│   │   │           ├── page.tsx         # Patient dashboard
+│   │   │           ├── health/
+│   │   │           │   ├── diet/page.tsx
+│   │   │           │   ├── medication/page.tsx
+│   │   │           │   ├── wellness/page.tsx
+│   │   │           │   └── cognitive/page.tsx
+│   │   │           │
+│   │   │           ├── calls/           # NEW: Call history
+│   │   │           │   └── page.tsx
+│   │   │           │
+│   │   │           └── services/        # Service requests (view-only)
+│   │   │               ├── rides/page.tsx
+│   │   │               └── deliveries/page.tsx
+│   │   │
+│   │   ├── components/
+│   │   │   ├── ui/                      # Shadcn components
+│   │   │   ├── Auth/
+│   │   │   │   └── SignInForm.tsx
+│   │   │   │
+│   │   │   ├── Dashboard/
+│   │   │   │   ├── PatientCard.tsx      # NEW: Patient selection card
+│   │   │   │   ├── MainCard.tsx         # Expandable sections
+│   │   │   │   ├── StatCard.tsx
+│   │   │   │   ├── HeartRateChart.tsx
+│   │   │   │   └── CallHistoryCard.tsx  # NEW: Call log display
+│   │   │   │
+│   │   │   ├── Health/
+│   │   │   │   ├── DietReportCard.tsx
+│   │   │   │   ├── MedicationCard.tsx
+│   │   │   │   ├── WellnessCard.tsx
+│   │   │   │   └── CognitiveScoreCard.tsx
+│   │   │   │
+│   │   │   └── Services/
+│   │   │       ├── RideHistoryCard.tsx  # View-only
+│   │   │       └── DeliveryCard.tsx     # View-only
+│   │   │
+│   │   ├── lib/
+│   │   │   ├── supabase.ts
+│   │   │   └── api.ts
+│   │   │
+│   │   └── types/
+│   │       ├── patient.ts
+│   │       ├── health.ts
+│   │       ├── services.ts
+│   │       ├── call_log.ts              # NEW
+│   │       └── user.ts
+│   │
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── tailwind.config.ts
+│   └── next.config.js
+│
+├── database/
+│   ├── supabase/
+│   │   ├── migrations/
+│   │   │   ├── 001_initial_schema.sql
+│   │   │   ├── 002_patients_caregivers.sql  # NEW
+│   │   │   ├── 003_health_entries.sql
+│   │   │   ├── 004_service_entries.sql
+│   │   │   ├── 005_call_logs.sql            # NEW
+│   │   │   └── 006_rls_policies.sql
+│   │   │
+│   │   └── seed.sql
+│   │
+│   └── schema_diagram.png
+│
+├── docs/
+│   ├── API.md
+│   ├── DEPLOYMENT.md
+│   └── DEMO_SCRIPT.md
+│
+├── docker-compose.yml
+├── .gitignore
+├── README.md
+└── LICENSE
