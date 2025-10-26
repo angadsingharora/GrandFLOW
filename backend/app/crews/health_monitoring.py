@@ -1,115 +1,136 @@
-# backend/app/crews/health_monitoring_crew.py
+# backend/app/crews/health_monitoring.py
 
-from crewai import Agent, Task, Crew
+"""
+Health Monitoring Crew with Memory for Multi-Turn Conversations
+
+This crew uses CrewAI agents with memory=True to have natural
+conversations with patients, gradually collecting health data.
+"""
+
+from crewai import Agent, Task, Crew, Process
 from app.tools.database_tools import (
     insert_diet_report, insert_medication_adherence, 
     insert_wellness_report, get_user_medical_profile, get_latest_vitals
 )
 from app.tools.health_analysis_tools import (
     calculate_diet_quality_score, calculate_exercise_quality_score,
-    generate_health_recommendations
+    calculate_medication_adherence_rate, generate_health_recommendations
 )
 
-def create_health_monitoring_crew(user_id: str, call_id: str):
+
+def create_health_monitoring_crew(patient_id: str, call_id: str, session: any):
     """
-    Creates a crew for daily health check-ins
+    Creates a crew for conversational health check-ins
+    
+    Args:
+        patient_id: Patient UUID
+        call_id: Call log UUID
+        session: CallSession object for tracking accumulated data
+    
+    Returns:
+        Crew with agents that have memory enabled
     """
     
-    # Agent 1: Diet Analyzer
-    diet_agent = Agent(
-        role="Diet Assessment Specialist",
-        goal="Assess daily nutrition and provide dietary recommendations",
-        backstory="""You are a nutritionist specialized in senior care. 
-        You ask about meals eaten today, estimate nutritional content, and 
-        provide personalized recommendations based on medical conditions.""",
-        tools=[insert_diet_report, get_user_medical_profile, calculate_diet_quality_score],
-        verbose=True
+    # Agent: Health Conversation Coordinator
+    health_coordinator = Agent(
+        role="Health Conversation Coordinator",
+        goal=f"""Have a natural, empathetic conversation with the patient to collect their daily health information.
+        Gather information about:
+        - What they ate today (breakfast, lunch, dinner)
+        - Vitamins and supplements taken
+        - Medication adherence
+        - Physical activity and exercise
+        - Sleep quality and duration
+        - Any symptoms or concerns
+        
+        Ask questions naturally, one at a time, like a caring doctor would.
+        Listen to responses and ask follow-up questions to get complete information.
+        Use the tools available to calculate health scores and save data.""",
+        
+        backstory="""You are an experienced geriatric health coordinator who specializes 
+        in phone-based health check-ins for seniors. You have a warm, patient demeanor and 
+        know how to have natural conversations that put people at ease. You ask one question 
+        at a time, listen carefully to responses, and gently probe for details when needed. 
+        You never rush the conversation and make the patient feel heard and cared for.""",
+        
+        tools=[
+            get_user_medical_profile,
+            get_latest_vitals,
+            calculate_diet_quality_score,
+            calculate_exercise_quality_score,
+            calculate_medication_adherence_rate,
+            generate_health_recommendations,
+            insert_diet_report,
+            insert_medication_adherence,
+            insert_wellness_report
+        ],
+        
+        verbose=True,
+        memory=True,  # Enable memory to remember conversation context
+        allow_delegation=False
     )
     
-    # Agent 2: Medication Tracker
-    medication_agent = Agent(
-        role="Medication Adherence Monitor",
-        goal="Verify medications were taken as prescribed",
-        backstory="""You are a clinical pharmacist focused on medication compliance.
-        You ask which medications were taken today, compare to the prescribed schedule,
-        and gently remind about any missed doses.""",
-        tools=[insert_medication_adherence, get_user_medical_profile],
-        verbose=True
+    # Task: Conversational Health Data Collection
+    health_conversation_task = Task(
+        description=f"""Have a natural conversation with the patient to collect their daily health information.
+
+Patient ID: {patient_id}
+Call ID: {call_id}
+
+CONVERSATION GUIDELINES:
+1. Start by asking how they're feeling today
+2. Then naturally transition to asking about their meals:
+   - "What did you have for breakfast this morning?"
+   - Listen to response, then ask about lunch
+   - Then ask about dinner
+   - Ask if they took any vitamins or supplements
+
+3. Ask about medications:
+   - "Did you take your medications today?"
+   - If they have prescribed medications, confirm each one
+
+4. Ask about physical activity:
+   - "Did you do any exercise or physical activity today?"
+   - Ask about steps or walking
+   - Ask how they slept last night
+
+5. Ask about symptoms:
+   - "Are you experiencing any pain, discomfort, or concerning symptoms?"
+
+IMPORTANT:
+- Ask ONE question at a time
+- Wait for the patient's response before moving to the next topic
+- Use the conversation history to remember what you've already asked
+- Call the appropriate tools as you gather information:
+  * calculate_diet_quality_score after getting meal info
+  * calculate_exercise_quality_score after getting activity info  
+  * calculate_medication_adherence_rate after medication discussion
+  * generate_health_recommendations once you have all data
+  * insert_diet_report, insert_wellness_report, insert_medication_adherence to save to database
+
+- When you've collected all necessary information, summarize what you learned
+  and provide 2-3 personalized recommendations
+
+The conversation should feel natural and caring, not like filling out a form.
+
+User's last message: {{user_input}}
+""",
+        agent=health_coordinator,
+        expected_output="""A conversational response that either:
+1. Asks the next natural question based on what you've learned so far
+2. Acknowledges the patient's response and asks a follow-up question
+3. Provides a warm summary and recommendations if all data has been collected
+
+The response should be natural, empathetic, and appropriate for speaking over the phone."""
     )
     
-    # Agent 3: Wellness Coach
-    wellness_agent = Agent(
-        role="Physical Wellness Coach",
-        goal="Assess exercise, sleep, and overall physical wellness",
-        backstory="""You are a geriatric wellness coach. You ask about exercise,
-        steps walked, sleep quality, and any physical symptoms. You provide
-        encouragement and realistic exercise recommendations.""",
-        tools=[insert_wellness_report, get_latest_vitals, calculate_exercise_quality_score],
-        verbose=True
-    )
-    
-    # Tasks
-    diet_task = Task(
-        description=f"""
-        Conduct a diet assessment for user {user_id}.
-        
-        Steps:
-        1. Ask: "What did you eat for breakfast, lunch, and dinner today?"
-        2. Estimate macronutrients and calories from their description
-        3. Ask about vitamins/supplements taken
-        4. Fetch user's dietary restrictions from medical profile
-        5. Calculate diet quality score (0-100)
-        6. Generate 2-3 personalized recommendations
-        7. Insert diet report to database using insert_diet_report tool
-        
-        Be conversational and empathetic.
-        """,
-        agent=diet_agent,
-        expected_output="Diet report successfully saved to database"
-    )
-    
-    medication_task = Task(
-        description=f"""
-        Check medication adherence for user {user_id}.
-        
-        Steps:
-        1. Fetch prescribed medications from medical profile
-        2. Ask: "Did you take your medications today?" (list them by name)
-        3. For each medication, confirm it was taken
-        4. Calculate adherence rate (% of medications taken)
-        5. If any missed, ask why and provide gentle reminder
-        6. Insert medication adherence entry using insert_medication_adherence tool
-        
-        Be supportive, not judgmental.
-        """,
-        agent=medication_agent,
-        expected_output="Medication adherence recorded in database"
-    )
-    
-    wellness_task = Task(
-        description=f"""
-        Assess physical wellness for user {user_id}.
-        
-        Steps:
-        1. Fetch recent vitals (steps, heart rate) from wearable data
-        2. Ask: "Did you do any exercise today?"
-        3. Ask: "How did you sleep last night?" (hours)
-        4. Ask: "Are you experiencing any pain or discomfort?"
-        5. Calculate exercise quality score based on activity level
-        6. Generate recommendations (e.g., "Try a 10-minute walk after lunch")
-        7. Insert wellness report using insert_wellness_report tool
-        
-        Be encouraging and realistic with goals.
-        """,
-        agent=wellness_agent,
-        expected_output="Wellness report saved to database"
-    )
-    
-    # Create crew
+    # Create crew with sequential process (one agent, conversational)
     crew = Crew(
-        agents=[diet_agent, medication_agent, wellness_agent],
-        tasks=[diet_task, medication_task, wellness_task],
-        verbose=True
+        agents=[health_coordinator],
+        tasks=[health_conversation_task],
+        process=Process.sequential,
+        verbose=True,
+        memory=True  # Enable crew-level memory
     )
     
     return crew

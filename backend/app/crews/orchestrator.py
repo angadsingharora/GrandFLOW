@@ -1,18 +1,28 @@
 # backend/app/crews/orchestrator.py
 
-from crewai import Agent, Task, Crew, Process
-from app.crews.health_monitoring import create_health_monitoring_crew
-from app.crews.cognitive_testing import create_cognitive_testing_crew
-from app.crews.service_concierge import create_service_concierge_crew
-from app.tools.database_tools import (
-    log_call_start, log_call_end, update_call_agents
-)
-from typing import Dict, List
-from datetime import datetime, date
+"""
+Call Orchestrator for CrewAI Conversational Loops
+
+Manages call initiation, crew selection, and conversation routing
+for multi-turn conversations with CrewAI agents.
+"""
+
+from typing import Dict, Any
+from datetime import datetime
+
+from app.tools.database_tools import log_call_start, update_call_agents
+from app.voice.conversation_loop import conversation_loop
+
 
 class CallOrchestrator:
     """
-    Master orchestrator that coordinates all agent crews during a call
+    Orchestrates calls and manages CrewAI conversation loops
+    
+    This class:
+    - Initiates calls and creates call logs
+    - Routes calls to appropriate crews based on type
+    - Delegates to ConversationLoopHandler for multi-turn conversations
+    - Manages conversation state across webhook calls
     """
     
     def __init__(self, patient_id: str, call_sid: str, call_direction: str):
@@ -20,164 +30,82 @@ class CallOrchestrator:
         self.call_sid = call_sid
         self.call_direction = call_direction
         self.call_id = None
-        self.conversation_history = []
-        self.agents_involved = []
+        self.call_type = None
+    
+    async def initiate_call(self, call_type: str = "health_checkup") -> Dict[str, Any]:
+        """
+        Initialize call and start conversation with appropriate crew
         
-    async def initiate_call(self) -> str:
+        Args:
+            call_type: Type of call (health_checkup, cognitive_test, etc.)
+        
+        Returns:
+            Dict with call_id and initial agent response
         """
-        Initialize call and create call log entry
-        """
-        # Log call start
+        self.call_type = call_type
+        
+        # Log call start in database
         self.call_id = log_call_start(
             patient_id=self.patient_id,
             call_sid=self.call_sid,
             call_direction=self.call_direction
         )
         
-        return self.call_id
+        # Update call log with agent type
+        agent_type = self._get_agent_type_from_call_type(call_type)
+        update_call_agents(self.call_id, agent_type)
+        
+        # Start conversation loop with appropriate crew
+        result = await conversation_loop.initiate_conversation(
+            call_sid=self.call_sid,
+            patient_id=self.patient_id,
+            call_id=self.call_id,
+            call_type=call_type,
+            call_direction=self.call_direction
+        )
+        
+        return {
+            "call_id": self.call_id,
+            "success": result.get("success", False),
+            "agent_response": result.get("agent_response", ""),
+            "error": result.get("error")
+        }
     
-    async def route_to_crew(self, intent: str, context: Dict = None) -> Dict:
+    async def process_user_response(self, user_input: str) -> Dict[str, Any]:
         """
-        Route conversation to appropriate crew based on intent
+        Process user response and continue conversation
         
         Args:
-            intent: Detected intent (health_checkup, cognitive_test, service_request)
-            context: Additional context for the crew
-            
+            user_input: User's spoken response (transcribed)
+        
         Returns:
-            Crew execution result
+            Dict with agent response and conversation status
         """
-        result = {}
-        
-        if intent == "health_checkup":
-            result = await self._run_health_monitoring(context)
-        
-        elif intent == "cognitive_test":
-            result = await self._run_cognitive_testing(context)
-        
-        elif intent == "service_request":
-            result = await self._run_service_concierge(context)
+        result = await conversation_loop.continue_conversation(
+            call_sid=self.call_sid,
+            user_input=user_input
+        )
         
         return result
     
-    async def _run_health_monitoring(self, context: Dict) -> Dict:
+    async def finalize_call(self) -> Dict[str, Any]:
         """
-        Execute health monitoring crew
+        Finalize call and save all data
+        
+        Returns:
+            Dict with finalization status
         """
-        # Create crew
-        crew = create_health_monitoring_crew(
-            patient_id=self.patient_id,
-            call_id=self.call_id
+        result = await conversation_loop.finalize_conversation(
+            call_sid=self.call_sid
         )
         
-        # Update call log
-        update_call_agents(self.call_id, "health_monitoring")
-        self.agents_involved.append("health_monitoring")
-        
-        # Execute crew
-        result = crew.kickoff(inputs={
-            "patient_id": self.patient_id,
-            "call_id": self.call_id,
-            "context": context or {}
-        })
-        
-        return {
-            "crew": "health_monitoring",
-            "status": "completed",
-            "result": result,
-            "timestamp": datetime.now().isoformat()
-        }
+        return result
     
-    async def _run_cognitive_testing(self, context: Dict) -> Dict:
-        """
-        Execute cognitive testing crew
-        """
-        crew = create_cognitive_testing_crew(
-            patient_id=self.patient_id,
-            call_id=self.call_id
-        )
-        
-        update_call_agents(self.call_id, "cognitive_testing")
-        self.agents_involved.append("cognitive_testing")
-        
-        result = crew.kickoff(inputs={
-            "patient_id": self.patient_id,
-            "call_id": self.call_id,
-            "context": context or {}
-        })
-        
-        return {
-            "crew": "cognitive_testing",
-            "status": "completed",
-            "result": result,
-            "timestamp": datetime.now().isoformat()
+    def _get_agent_type_from_call_type(self, call_type: str) -> str:
+        """Map call type to agent type for logging"""
+        mapping = {
+            "health_checkup": "health_monitoring",
+            "cognitive_test": "cognitive_testing",
+            "service_request": "service_concierge"
         }
-    
-    async def _run_service_concierge(self, context: Dict) -> Dict:
-        """
-        Execute service concierge crew
-        """
-        crew = create_service_concierge_crew(
-            patient_id=self.patient_id,
-            call_id=self.call_id
-        )
-        
-        update_call_agents(self.call_id, "service_concierge")
-        self.agents_involved.append("service_concierge")
-        
-        result = crew.kickoff(inputs={
-            "patient_id": self.patient_id,
-            "call_id": self.call_id,
-            "user_request": context.get("user_request", ""),
-            "context": context or {}
-        })
-        
-        return {
-            "crew": "service_concierge",
-            "status": "completed",
-            "result": result,
-            "timestamp": datetime.now().isoformat()
-        }
-    
-    async def finalize_call(self, transcript: str, patient_mood: str) -> Dict:
-        """
-        Finalize call and update call log
-        """
-        log_call_end(
-            call_id=self.call_id,
-            transcript=transcript,
-            patient_mood=patient_mood
-        )
-        
-        return {
-            "call_id": self.call_id,
-            "agents_involved": self.agents_involved,
-            "status": "completed",
-            "ended_at": datetime.now().isoformat()
-        }
-    
-    def should_run_cognitive_test(self, patient: Dict) -> bool:
-        """
-        Determine if cognitive test should be run this call
-        
-        Rules:
-        - Weekly on specified day (e.g., every Monday)
-        - Or if 7+ days since last test
-        """
-        from app.database import supabase
-        
-        # Get last cognitive test
-        result = supabase.table("cognitive_test_reports")\
-            .select("test_date")\
-            .eq("patient_id", self.patient_id)\
-            .order("test_date", desc=True)\
-            .limit(1)\
-            .execute()
-        
-        if not result.data:
-            return True  # No previous test
-        
-        last_test_date = date.fromisoformat(result.data[0]['test_date'])
-        days_since = (date.today() - last_test_date).days
-        
-        return days_since >= 7
+        return mapping.get(call_type, "unknown")

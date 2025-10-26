@@ -21,34 +21,36 @@ app.add_middleware(
 # Voice Call Endpoints (Twilio Webhooks)
 # ========================================
 
-@app.post("/voice/incoming")
-async def handle_incoming_call(request: Request):
-    """
-    Twilio webhook for incoming calls
-    Uses VoiceCallHandler which manages CallOrchestrator
-    """
-    return await voice_handler.handle_incoming_call(request)
-
-
-@app.post("/voice/process-input")
-async def process_user_input(request: Request):
-    """
-    Process transcribed user speech from Twilio
-    Routes to appropriate CrewAI agents via CallOrchestrator
-    """
-    return await voice_handler.process_user_input(request)
-
-
 @app.post("/voice/outbound")
-async def initiate_outbound_call(patient_id: str, call_type: str = "scheduled"):
+async def initiate_outbound_call(patient_id: str, call_type: str = "health_checkup"):
     """
     Initiate outbound call to patient
     
     Args:
         patient_id: Patient UUID
-        call_type: "scheduled" (daily check-in) or "followup"
+        call_type: "health_checkup", "cognitive_test", etc.
     """
     return await voice_handler.handle_outbound_call(patient_id, call_type)
+
+
+@app.post("/voice/outbound-start")
+async def handle_outbound_start(request: Request):
+    """
+    Twilio webhook when outbound call connects
+    Starts CrewAI conversation with appropriate agent
+    """
+    return await voice_handler.handle_outbound_start(request)
+
+
+@app.post("/voice/conversation")
+async def handle_conversation(request: Request):
+    """
+    Main conversation loop endpoint
+    
+    Receives user speech from Twilio, feeds to CrewAI agent,
+    returns agent's response to be spoken back
+    """
+    return await voice_handler.handle_conversation(request)
 
 
 @app.post("/voice/call-status")
@@ -56,14 +58,7 @@ async def handle_call_status(request: Request):
     """
     Twilio callback for call status updates
     """
-    form_data = await request.form()
-    call_sid = form_data.get("CallSid")
-    call_status = form_data.get("CallStatus")
-    
-    # Log call status change
-    print(f"Call {call_sid} status: {call_status}")
-    
-    return Response(content="OK", media_type="text/plain")
+    return await voice_handler.handle_call_status(request)
 
 # ========================================
 # Dashboard API Endpoints
